@@ -1,0 +1,12 @@
+# deps
+.cpcache/
+.nrepl-port
+
+# clj-kondo
+.clj-kondo/**/
+
+# clojure lsp
+.lsp/.cache/
+
+# calva
+.calva/output-window/

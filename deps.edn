@@ -1,0 +1,12 @@
+{:paths   ["src"]
+ :deps    {wkok/openai-clojure    {:git/url "https://github.com/wkok/openai-clojure"
+                                   :git/sha "b67e0be3789efdf0623942e16433f832f145d949"}
+           sg.flybot/lasagna-pull {:mvn/version "0.4.150"}}
+ :aliases {:neil {:project {:name meerkat/meerkat}}
+           :dev  ;;on development
+           {:extra-deps {io.github.robertluo/rich-comment-tests {:git/url "https://github.com/robertluo/rich-comment-tests"
+                                                                 :git/tag "v1.1.0"
+                                                                 :git/sha "6d01d12"}}}
+           :test ;;has to be used with :dev
+           {:exec-fn com.mjdowney.rich-comment-tests.test-runner/run-tests-in-file-tree!
+            :exec-args {:dirs #{"src"}}}}}

@@ -9,4 +9,9 @@
                                                                  :git/sha "6d01d12"}}}
            :test ;;has to be used with :dev
            {:exec-fn com.mjdowney.rich-comment-tests.test-runner/run-tests-in-file-tree!
-            :exec-args {:dirs #{"src"}}}}}
+            :exec-args {:dirs #{"src"}}}
+           :readme ;;generate readme
+           {:extra-deps {robertluo/clerk-doc {:git/url "https://github.com/robertluo/clerk-doc"
+                                              :git/sha "d2b37f0127c9d7f55bd51661137bfb8129012202"}}
+            :exec-fn robertluo.clerk-doc/clj->md
+            :exec-args {:from "src/readme.clj" :to "README.md" :ai-improve? true}}}}

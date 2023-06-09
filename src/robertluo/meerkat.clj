@@ -28,11 +28,13 @@
   (chat-msg "hello") ;=> {:role "user" :content "hello"}
   )
 
-(let [chat-models #{:gpt-4 :gpt-4-32k :gpt-3.5-turbo}
-      default     {:model    :gpt-3.5-turbo,
-                   :messages [(chat-msg "answer must in EDN format" :system)]}
-      q-response  (pull/qfn '{:choices [{:message ?msg}]} ?msg)
-      fconj       (fn [coll item] (if item (conj coll item) coll))]
+(let [chat-models    #{:gpt-4 :gpt-4-32k :gpt-3.5-turbo}
+      system-prompt  "answer must in EDN format"
+      default-config {:model    :gpt-3.5-turbo,
+                      :prompt-token-max  1024,
+                      :messages [(chat-msg system-prompt :system)]}
+      q-response     (pull/qfn '{:choices [{:message ?msg}]} ?msg)
+      fconj          (fn [coll item] (if item (conj coll item) coll))]
   (defn chat-data
     "chat-data contains everything when we chat with ChatGPT, including the AI environment,
      returns a updated from `prev-data` and a `new-message`,
@@ -42,11 +44,13 @@
     ([new-message]
      (chat-data new-message {}))
     ([new-message prev-data]
+     (chat-data new-message prev-data default-config))
+    ([new-message prev-data config]
      (let [answer (-> (:response prev-data) q-response)]
        (-> (dissoc prev-data :response)
            (update :request
                    (fn [req]
-                     (let [req (merge default req)]
+                     (let [req (merge config req)]
                        (assert (chat-models (:model req)) "illegal model of chat")
                        (update req :messages #(-> % (fconj answer) (fconj new-message)))))))))))
 
@@ -63,4 +67,5 @@
   (chat init-data)
   (chat (chat-data (chat-msg "Where was it played?") *1))
   (chat (chat-data (chat-msg "answer it using :field, :city :state") *1))
+  (chat (chat-data (chat-msg "summarize current conversation in 40 words or less") *1))
   )

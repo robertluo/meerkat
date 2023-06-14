@@ -13,9 +13,18 @@
   "create an AI environment"
   ;;TODO support Azure api
   [api-key]
-  {:api-key (or api-key (System/getenv "OPENAI_API_KEY"))})
+  {:api-key    (or api-key (System/getenv "OPENAI_API_KEY"))
+   :model/chat :gpt-3.5-turbo})
 
-(defn chat-msg
+(defn- into-when
+  ([coll item]
+   (into-when coll item identity))
+  ([coll item f-item]
+   (into-when coll item conj f-item))
+  ([coll item f-coll f-item] 
+   (if item (f-coll coll (f-item item)) coll)))
+
+(defn- chat-msg
   "returns a chat message with string `content` and keyword `role`(default to `:user`)"
   ([content]
    (chat-msg content :user))
@@ -23,49 +32,46 @@
    (assert (#{:system :user :assistant} role) "illegal role")
    {:role (name role) :content content}))
 
+(defn- prompt->msgs
+  "returns a request from a `prompt`"
+  [{:prompt/keys [user system history]}]
+  {:messages 
+   (-> []
+       (into-when system #(chat-msg % :system))
+       (into-when history into #(mapv (fn [{:prompt/keys [user assistant]}] (apply chat-msg (if user [user] [assistant :assistant]))) %))
+       (into-when user chat-msg))})
+
 ^:rct/test
 (comment
-  (chat-msg "hello") ;=> {:role "user" :content "hello"}
+  (prompt->msgs #:prompt{:user "hello"}) ;=> {:messages [{:role "user" :content "hello"}]}
+  (prompt->msgs #:prompt{:system "ok" :user "hello"}) ;=> {:messages [{:role "system" :content "ok"} {:role "user" :content "hello"}]}
+  (prompt->msgs #:prompt{:system "ok" :user "hello" :history [#:prompt{:user "history"} #:prompt{:assistant "no comment"}]}) 
+  ;=> {:messages [{:role "system", :content "ok"} {:role "user", :content "history"} {:role "assistant" :content "no comment"} {:role "user", :content "hello"}]}
   )
 
-(let [chat-models    #{:gpt-4 :gpt-4-32k :gpt-3.5-turbo}
-      system-prompt  "answer must in EDN format"
-      default-config {:model    :gpt-3.5-turbo,
-                      :prompt-token-max  1024,
-                      :messages [(chat-msg system-prompt :system)]}
-      q-response     (pull/qfn '{:choices [{:message ?msg}]} ?msg)
-      fconj          (fn [coll item] (if item (conj coll item) coll))]
-  (defn chat-data
-    "chat-data contains everything when we chat with ChatGPT, including the AI environment,
-     returns a updated from `prev-data` and a `new-message`,
-     
-      - `prev-data` chating data possibly returned from previous chat session.
-      - `new-message` may be constructed by `chat-msg`, new chat message request"
-    ([new-message]
-     (chat-data new-message {}))
-    ([new-message prev-data]
-     (chat-data new-message prev-data default-config))
-    ([new-message prev-data config]
-     (let [answer (-> (:response prev-data) q-response)]
-       (-> (dissoc prev-data :response)
-           (update :request
-                   (fn [req]
-                     (let [req (merge config req)]
-                       (assert (chat-models (:model req)) "illegal model of chat")
-                       (update req :messages #(-> % (fconj answer) (fconj new-message)))))))))))
+(defn gpt-of
+  [{:keys [model/chat] :as env}]
+  (fn [prompt]
+    (ai/create-chat-completion (assoc prompt :model chat) env)))
 
-(defn chat
-  "execute chat specified in `data` and returns it with `:response` from the server"
-  [{env :env request :request :as data}]
-  (when-let [response (ai/create-chat-completion request env)]
-    (assoc data :response response)))
+(def ^:private q-response 
+  (pull/qfn 
+   '{:usage {:prompt_tokens ?pt :completion_tokens ?ct :total_tokens ?tt}
+     :choices [{:message {:role "assistant" :content ?content}, :finish_reason "stop"}]}
+   {:token/prompt ?pt :token/completion ?ct :token/total ?tt
+    :prompt/assistant ?content}))
+
+(defn chat-completion
+  ([f prompt]
+   (when-let [response (-> (prompt->msgs prompt) f (q-response))]
+     (-> prompt 
+         (assoc :response response)
+         (dissoc :prompt/user)
+         (update :prompt/history (fn [cur] (-> (or cur []) 
+                                               (into-when (select-keys prompt [:prompt/user]))
+                                               (into-when response))))))))
 
 ^:rct/test
 (comment
-  (def init-data (chat-data (chat-msg "Who won the world series in 2020?") {:env (ai-env nil)}))
-  init-data  ;=>> {:request {:model :gpt-3.5-turbo :messages #(= 2 (count %))}}
-  (chat init-data)
-  (chat (chat-data (chat-msg "Where was it played?") *1))
-  (chat (chat-data (chat-msg "answer it using :field, :city :state") *1))
-  (chat (chat-data (chat-msg "summarize current conversation in 40 words or less") *1))
+  (chat-completion (gpt-of (ai-env nil)) #:prompt{:user "hello"})
   )

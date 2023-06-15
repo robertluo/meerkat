@@ -50,11 +50,13 @@
   )
 
 (defn gpt-of
+  "returns a response of an `env` using chatGPT's chat completion"
   [{:keys [model/chat] :as env}]
   (fn [prompt]
     (ai/create-chat-completion (assoc prompt :model chat) env)))
 
 (def ^:private q-response 
+  "returns new prompt and other interesting information (token) in a gpt response"
   (pull/qfn 
    '{:usage {:prompt_tokens ?pt :completion_tokens ?ct :total_tokens ?tt}
      :choices [{:message {:role "assistant" :content ?content}, :finish_reason "stop"}]}
@@ -67,11 +69,56 @@
      (-> prompt 
          (assoc :response response)
          (dissoc :prompt/user)
-         (update :prompt/history (fn [cur] (-> (or cur []) 
-                                               (into-when (select-keys prompt [:prompt/user]))
-                                               (into-when response))))))))
+         (update :prompt/history 
+                 (fn [cur]
+                   (-> (or cur [])
+                       (into-when (select-keys prompt [:prompt/user]))
+                       (into-when response))))))))
 
-^:rct/test
 (comment
-  (chat-completion (gpt-of (ai-env nil)) #:prompt{:user "hello"})
+  (def prog-instruction 
+    "Please write Clojure code for my request, The response must start directly
+     with the code, without human language opening. Any human language explanations must
+     be embedded within comments.
+      - parenthesis, brackets matches.
+      - pass the `tests`")
+  
+  (def example-1
+    {:code
+     '(defn square "returns a number which is the squre of `x`" [x])
+     :tests
+     '[(= 9 (square 3))]
+     :expected-assistant-response
+     '(defn square "returns a number which is the squre of `x`" [x] (* x x))}) 
+  
+  (def example-2
+    {:code
+     '(defn my-odd? "predict if `x` is a odd number" [x])
+     :tests
+     '[(= false (my-odd? 2))
+       (= true (my-odd? 1))]
+     :expected-assistant-response
+     '(defn my-odd? "predict if `x` is a odd number" [x] (= 1 (mod x 2)))})
+
+  
+  (def prog-sys-prompt (str prog-instruction "\nexample:" (pr-str example-1)
+                            "\n" (pr-str example-2)))
+  (def user-code-1
+    {:code
+     '(defn lcm "returns the least common multiple number of `a` and `b`" [a b])
+     :tests
+     '[(= 2 (lcm 1 2))
+       (= 30 (lcm 5 6))
+       (= 20 (lcm 10 4))]})
+  
+  (def user-code-2
+    {:code
+     '(defn read-all "returns a vector contains all clojure forms in `s`" [s])
+     :tests
+     '[(= [3] (read-all "3"))
+       (= [:a 5] (read-all ":a 5"))]})
+  
+  (def rtn (chat-completion (gpt-of (ai-env nil)) 
+                            #:prompt{:system prog-sys-prompt :user (pr-str user-code-2)})) 
+  (-> rtn (get-in [:response :prompt/assistant]))
   )
